@@ -1,0 +1,4 @@
+.env
+__pycache__/
+*.pyc
+data/*.csv   # si tus CSV locales no quieres subirlos al repo
