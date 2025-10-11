@@ -1,59 +1,74 @@
 # etl_supabase.py
 import os
+import calendar
+from datetime import datetime
+import cdsapi
+import xarray as xr
 import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
-from datetime import datetime
+from dotenv import load_dotenv
 
-# Leer credenciales desde variables de entorno (se las pasará GitHub Actions como secrets)
-USER = os.getenv("postgres.gkzvbidocktfkwhvngpg")
-PASSWORD = os.getenv("Hipopotamo123456")
-HOST = os.getenv("aws-1-us-east-2.pooler.supabase.com")
-PORT = os.getenv("6543")
-DBNAME = os.getenv("postgress")
+load_dotenv()
 
-# Ruta local del CSV (si lo subes al repo) o puedes descargar desde URL/Azure/GDrive si prefieres.
-# Ejemplo: si tus CSV están en el repo en carpeta /data, pon "data/miarchivo.csv"
-CARPETA = os.getenv("CSV_FOLDER", ".")  # por defecto la raíz del repo
-# Si tienes archivos específicos, puedes listarlos o leer uno en particular.
-# Aquí procesamos todos los .csv en CARPETA
-def crear_engine():
-    conexion_str = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}"
-    return create_engine(conexion_str, connect_args={'sslmode': 'require'})
+# --- CONFIG DB desde ENV ---
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT", "6543")
+DB_NAME = os.getenv("DB_NAME")
 
-def procesar_csv_a_postgres(engine):
-    archivos = [f for f in os.listdir(CARPETA) if f.endswith(".csv")]
-    if not archivos:
-        print("No se encontraron archivos CSV en la carpeta especificada.")
-        return
+if not all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
+    raise SystemExit("Faltan variables de base de datos en .env")
 
-    print(f"Archivos encontrados: {archivos}")
-    for archivo in archivos:
-        ruta_archivo = os.path.join(CARPETA, archivo)
-        print(f"\nProcesando archivo: {ruta_archivo}")
+conexion_str = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+engine = create_engine(conexion_str, connect_args={"sslmode": "require"})
 
-        try:
-            df = pd.read_csv(ruta_archivo, encoding='utf-8', on_bad_lines='skip')
-            df.dropna(how="all", inplace=True)
-            df.columns = [col.lower().strip().replace(" ", "_") for col in df.columns]
-            # Ejemplo: agrega columna con fecha de carga
-            df["fecha_carga"] = datetime.utcnow()
+def descargar_datos(archivo_salida="era5_land_daily.nc", variables=None, year=None, month=None, times=["00:00"], area=None):
+    if variables is None:
+        variables = ["2m_temperature", "total_precipitation"]
 
-            nombre_tabla = os.path.splitext(archivo)[0].lower().replace(" ", "_")
-            # Usamos append para no borrar tablas existentes; puedes cambiar a 'replace' si prefieres.
-            df.to_sql(nombre_tabla, engine, if_exists="append", index=False)
-            print(f"Datos cargados correctamente en la tabla: {nombre_tabla}")
+    c = cdsapi.Client()
+    year = year or datetime.utcnow().year
+    month = month or datetime.utcnow().month
 
-        except pd.errors.EmptyDataError:
-            print(f"El archivo {archivo} está vacío o corrupto.")
-        except SQLAlchemyError as e:
-            print(f"Error al subir datos a Supabase para {archivo}: {e}")
-        except Exception as e:
-            print(f"Ocurrió un error inesperado con {archivo}: {e}")
+    dias_mes = [f"{d:02d}" for d in range(1, calendar.monthrange(year, month)[1] + 1)]
 
-    print("\nETL completado correctamente.")
+    request = {
+        "variable": variables,
+        "year": str(year),
+        "month": f"{month:02d}",
+        "day": dias_mes,
+        "time": times,
+        "format": "netcdf",
+    }
+
+    if area:
+        # area = [N, W, S, E] ejemplo: El Salvador aproximado [14.5, -90.0, 13.0, -88.0]
+        request["area"] = area
+
+    print("Descargando datos con request:", {k: request[k] for k in ["variable","year","month","day","time","format", "area"] if k in request})
+    c.retrieve("reanalysis-era5-land-timeseries", request, archivo_salida)
+    return archivo_salida
+
+def procesar_y_cargar(archivo, tabla="era5_land_data", if_exists="append"):
+    try:
+        print("Abriendo NetCDF con xarray...")
+        ds = xr.open_dataset(archivo)
+        df = ds.to_dataframe().reset_index()
+        df.columns = [str(c).lower().strip().replace(" ", "_") for c in df.columns]
+        df["carga_timestamp"] = datetime.utcnow()
+        print(f"Registros a subir: {len(df)}")
+
+        df.to_sql(tabla, engine, if_exists=if_exists, index=False)
+        print("Carga finalizada ✅")
+    except SQLAlchemyError as e:
+        print("Error SQLAlchemy:", e)
+    except Exception as e:
+        print("Error general:", e)
 
 if __name__ == "__main__":
-    print("Iniciando ETL...")
-    engine = crear_engine()
-    procesar_csv_a_postgres(engine)
+    archivo = descargar_datos()
+    procesar_y_cargar(archivo)
+    print("ETL finalizado.")
+
