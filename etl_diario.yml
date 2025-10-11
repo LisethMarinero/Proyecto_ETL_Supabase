@@ -27,6 +27,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requisitos.txt
 
+      - name: Configurar token de Copernicus
+        run: |
+          mkdir -p ~/.cdsapirc
+          echo "url: https://cds.climate.copernicus.eu/api" > ~/.cdsapirc
+          echo "key: 123456:da593dcf-84ac-4790-a785-9aca76da8fee" >> ~/.cdsapirc
+
       - name: Ejecutar ETL
         env:
           DB_USER: ${{ secrets.DB_USER }}
@@ -34,7 +40,6 @@ jobs:
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT }}
           DB_NAME: ${{ secrets.DB_NAME }}
-        run: |
-          python etl_supabase.py
+        run: python etl_supabase.py
 
 
