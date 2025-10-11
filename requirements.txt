@@ -1,4 +1,7 @@
 pandas
+xarray
+cdsapi
 sqlalchemy
 psycopg2-binary
 python-dotenv
+
