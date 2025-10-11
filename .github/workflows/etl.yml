@@ -1,38 +1,40 @@
-name: ETL diario a Supabase
+name: ETL diario - CDS → Supabase
 
 on:
-  push:
-    paths:
-      - 'etl_supabase.py'
-      - 'requirements.txt'
   schedule:
-    # Ejecutar cada día a 02:00 hora El Salvador (UTC-6) -> 08:00 UTC
-    - cron: '0 8 * * *'
+    - cron: "0 6 * * *"   # Ejecuta a las 06:00 UTC cada día (ajusta al horario que quieras)
+  workflow_dispatch:
 
 jobs:
-  run-etl:
+  etl:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install cdsapi xarray netCDF4 pandas sqlalchemy psycopg2-binary python-dotenv
 
-      - name: Run ETL
+      - name: Crear archivo de credenciales CDS
+        run: |
+          mkdir -p ~/.cdsapi
+          echo "url: https://cds.climate.copernicus.eu/api" > ~/.cdsapi/config
+          echo "key: ${{ secrets.CDS_API_KEY }}" >> ~/.cdsapi/config
+
+      - name: Ejecutar ETL
         env:
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT }}
           DB_NAME: ${{ secrets.DB_NAME }}
-          CSV_FOLDER: ${{ secrets.CSV_FOLDER }}   # Opcional: carpeta en el repo con CSV o Déjalo vacío
         run: |
           python etl_supabase.py
+
