@@ -10,11 +10,10 @@ on:
     - cron: '0 8 * * *'
 
 jobs:
-  ejecutar-etl:
+  run-etl:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Obtener repositorio
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -37,3 +36,9 @@ jobs:
           CSV_FOLDER: ${{ secrets.CSV_FOLDER }}   # Opcional: carpeta en el repo con CSV o Déjalo vacío
         run: |
           python etl_supabase.py
+
+
+
+
+
+          
